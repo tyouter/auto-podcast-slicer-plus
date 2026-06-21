@@ -1,0 +1,13 @@
+# Output directories (rendered media, test artifacts)
+_e2e_out/
+_m2_out/
+_m3_out/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/

@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "garden-core"
+version = "0.1.0"
+description = "Clean rewrite of the podcast clipping + subtitle pipeline (immutable dataclass flow)."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+
+# Heavy deps (torch/CUDA, funasr, PIL, ffmpeg-python, etc.) are provided by the
+# shared .venv at ../auto-podcast-slicer/.venv. We only pin the lightweight ones
+# here so the package stays import-safe without re-installing torch.
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
