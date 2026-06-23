@@ -234,7 +234,7 @@ def heal_gaps(
     """Detect + heal gaps. Returns (healed transcript, final gap list).
 
     ``transcriber`` is a callable (audio_path, start_s, end_s) -> [Segment]
-    (e.g. wrapping FunASRBackend on a slice). When None, only detection runs —
+    (e.g. wrapping FunASRLocal on a slice). When None, only detection runs —
     no transcript text is invented (fail-safe).
     """
     current = transcript

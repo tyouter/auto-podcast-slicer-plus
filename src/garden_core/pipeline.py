@@ -50,6 +50,7 @@ class PipelineOptions:
     source_media: str = ""
     heal_gaps: bool = False        # run gap healing before segmentation
     heal_max_rounds: int = 5
+    render_gate: bool = True        # mechanical post-render quality gate (BLOCKs bad clips)
 
 
 def run_from_transcript(
@@ -122,6 +123,15 @@ def run_from_transcript(
             log.warning("no RenderOptions — skipping render, returning plans only")
             continue
         results.append(render(plan, style, opts.render))
+
+    # Independent mechanical render gate: read the rendered ASS artifacts and
+    # verify hard, machine-computable specs (font-size ratio consistency,
+    # subtitle safe area, Simplified-Chinese). Zero LLM. It does NOT touch
+    # render logic; on failure it BLOCKs loudly (RenderGateError) so a human
+    # decides — it never auto-fixes a clip.
+    if opts.render_gate and results:
+        from garden_core.stage_render.render_gate import gate_results
+        gate_results(results)
     return results
 
 
@@ -187,8 +197,8 @@ def _make_gap_transcriber(transcriber):
 
     def transcribe_slice(audio_path: str, start_s: float, end_s: float):
         from garden_core.stage_asr import AudioRef
-        # FunASRBackend chunks internally, but for a small gap slice we feed the
-        # slice directly so timestamps come back relative to the slice origin.
+        # FunASRLocal transcribes whole files, but for a small gap slice we feed
+        # the slice directly so timestamps come back relative to the slice origin.
         tmp = tempfile.mktemp(suffix=".wav")
         try:
             cmd = ["ffmpeg", "-y", "-ss", str(start_s), "-to", str(end_s),
