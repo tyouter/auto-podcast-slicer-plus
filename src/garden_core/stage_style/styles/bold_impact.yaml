@@ -1,0 +1,5 @@
+# Default config for the built-in "bold_impact" style.
+mold: bold_impact
+font_size_ratio: 0.052
+# font_family is required config now (no code default); keep the prior font.
+font_family: Noto Serif SC

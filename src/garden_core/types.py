@@ -161,8 +161,16 @@ class StyleDef:
     """Single style object. Resolves from one path only (fixes bug #3)."""
 
     name: str
-    font_family: str
-    font_size_ratio: float  # xr: font size / video height
+    # font_family is REQUIRED config, exactly like xr below: there is NO code
+    # default. It stays None through mold expansion / the structural fallback,
+    # and the style resolver raises ConfigError if a resolved style still has it
+    # None (so the font can never silently fall back to a built-in default).
+    font_family: Optional[str]
+    # xr: font size / video height. REQUIRED — must be supplied by the style
+    # config; there is NO code default. It stays None through mold expansion /
+    # the structural fallback, and the style resolver raises ConfigError if a
+    # resolved style still has it None (so xr can never silently fall back).
+    font_size_ratio: Optional[float]
     primary_color: str  # &HAABBGGRR
     outline_color: str
     # outline_width & shadow_depth are RATIOS of font_size (resolution-independent);

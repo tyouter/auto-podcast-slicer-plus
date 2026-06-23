@@ -49,12 +49,19 @@ def _ass_color(ass_hex: str, alpha_override: int | None = None) -> str:
     return f"&H{a}{b}{g}{r}"
 
 
-def _build_header(style: StyleDef, video_width: int, video_height: int) -> str:
-    font_size = style.font_size_px(video_height)
+def _build_header(
+    style: StyleDef, video_width: int, video_height: int,
+    content_height: int, content_bottom_offset: int,
+) -> str:
+    # Font + vertical margin scale to the CONTENT region height (== video_height
+    # for a 16:9 canvas; the centred 16:9 band for a vertical canvas), then the
+    # margin is shifted down by content_bottom_offset so subtitles sit at the
+    # bottom of the content, not the bottom of the full (letterboxed) canvas.
+    font_size = style.font_size_px(content_height)
     # outline_width / shadow_depth are ratios of font_size → scale to px.
     outline_px = style.outline_width * font_size
     shadow_px = style.shadow_depth * font_size
-    margin_v = int(style.margins[2] * video_height)
+    margin_v = int(style.margins[2] * content_height) + content_bottom_offset
     margin_l = int(style.margins[0] * video_width)
     margin_r = int(style.margins[1] * video_width)
     primary = _ass_color(style.primary_color)
@@ -101,9 +108,11 @@ def _dialogue_line(
 def _bg_dialogue(
     cue: Cue, bg: BgStyle, style: StyleDef,
     video_width: int, video_height: int,
+    content_height: int, content_bottom_offset: int,
 ) -> str | None:
     """A background-box Dialogue line (layer 0) sized to the cue's text."""
-    font_size = style.font_size_px(video_height)
+    # Mirror _build_header: size to the content region, anchor to its bottom.
+    font_size = style.font_size_px(content_height)
     text_w = measure_text_width(cue.text, font_size, style.font_family, style.bold)
     # bg.padding & corner_radius are ratios of font_size → scale to px.
     pad = bg.padding * font_size
@@ -113,7 +122,8 @@ def _bg_dialogue(
     # center the box horizontally; ASS alignment 2 = bottom-center
     drawing = rounded_rect_drawing(box_w, box_h, r)
     pos_x = video_width // 2 - box_w // 2
-    pos_y = video_height - int(style.margins[2] * video_height) - box_h
+    margin_v = int(style.margins[2] * content_height) + content_bottom_offset
+    pos_y = video_height - margin_v - box_h
     color = _ass_color(style.outline_color, alpha_override=bg.alpha)
     # \pos sets the drawing origin; \1c fills the rectangle
     text = (
@@ -147,12 +157,34 @@ def build_ass(
     """
     if video_width is None:
         video_width = int(video_height * 16 / 9)
-    out = _build_header(style, video_width, video_height)
+
+    # Vertical canvas: the 16:9 horizontal content is scaled to the canvas width
+    # and overlaid centred (see ffmpeg_render.render_vertical), so it occupies
+    # only a band in the middle — not the full canvas height. Author subtitles in
+    # that band's coordinate system: size font + margins to the band height, then
+    # offset the margin down to the band's bottom edge. For a 16:9 canvas the
+    # band IS the whole canvas (content_height == video_height, offset == 0), so
+    # the horizontal path is byte-for-byte unchanged.
+    content_height = video_height
+    content_bottom_offset = 0
+    band_h = round(video_width * 9 / 16)
+    band_h += band_h % 2  # match ffmpeg scale=w:-2 even-height rounding
+    if band_h < video_height:
+        content_height = band_h
+        content_bottom = (video_height + band_h) // 2
+        content_bottom_offset = video_height - content_bottom
+
+    out = _build_header(
+        style, video_width, video_height, content_height, content_bottom_offset,
+    )
     for cue in clip.cues:
         if not cue.text.strip():
             continue
         if style.background is not None:
-            bg_line = _bg_dialogue(cue, style.background, style, video_width, video_height)
+            bg_line = _bg_dialogue(
+                cue, style.background, style, video_width, video_height,
+                content_height, content_bottom_offset,
+            )
             if bg_line:
                 out += bg_line
         out += _text_dialogue(cue, style, video_width, video_height)

@@ -1,0 +1,8 @@
+# Default config for the built-in "cinematic" style.
+# xr (font_size_ratio = font_size / video_height) is the subtitle master
+# variable. It lives here, NOT in code. 0.078 ≈ 168px at 4K (2160p).
+# Project-level config (config_dir) may override this; see YamlStyleResolver.
+mold: cinematic
+font_size_ratio: 0.078
+# font_family is required config now (no code default); keep the prior font.
+font_family: Noto Serif SC

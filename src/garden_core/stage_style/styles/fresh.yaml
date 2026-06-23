@@ -1,0 +1,20 @@
+# Config for the built-in "fresh" style: a clean variant of cinematic.
+# Same layout as cinematic (mold below carries position / margins / bg=none),
+# but pure-white text with a thinner outline + lighter, semi-transparent shadow.
+#
+# IMPORTANT: outline/shadow overrides MUST use the StyleDef field names
+# (outline_width / shadow_depth), NOT the mold names (outline_ratio /
+# shadow_ratio) — _apply_overrides keeps only StyleDef fields and silently
+# drops anything else. These values are RATIOS of font_size (resolution-
+# independent): the renderer scales them to px via font_size * video_height.
+mold: cinematic
+# xr (font_size_ratio = font_size / video_height); sticks with cinematic's xr.
+# 0.078 ≈ 168px at 4K (2160p).
+font_size_ratio: 0.078
+# Noto Sans SC Medium (思源黑体 Medium, weight 500).
+font_family: Noto Sans SC Medium
+# Thinner outline ≈ 2.8px @ 168px font (2.8 / 168 ≈ 0.0167).
+outline_width: 0.0167
+# Lighter shadow ≈ 2.5px @ 168px font (2.5 / 168 ≈ 0.0149); semi-transparent
+# black shadow_color (&H96000000) is inherited from the cinematic mold default.
+shadow_depth: 0.0149

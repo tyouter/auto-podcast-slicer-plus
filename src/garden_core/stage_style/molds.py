@@ -17,7 +17,13 @@ from typing import Optional
 import yaml
 
 from garden_core.config import load_yaml
-from garden_core.stage_style import DEFAULT_STYLE, StyleResolver, StaticResolver
+from garden_core.stage_style import (
+    DEFAULT_STYLE,
+    StyleResolver,
+    StaticResolver,
+    require_xr,
+    require_font_family,
+)
 from garden_core.types import BgStyle, StyleDef
 
 log = logging.getLogger(__name__)
@@ -30,7 +36,10 @@ class StyleMold:
     """Ratios relative to font_size / video_height. Resolution-independent."""
 
     name: str
-    font_size_ratio: float = 0.052        # font_size / video_height
+    # xr (font_size / video_height) is the subtitle master variable. It is a
+    # REQUIRED config value with NO code default: molds carry None, and the
+    # resolver fills it from the style YAML, raising if it is still missing.
+    font_size_ratio: Optional[float] = None
     outline_ratio: float = 0.036          # outline_width / font_size
     shadow_ratio: float = 0.014           # shadow_depth / font_size
     padding_h_ratio: float = 0.15         # box horizontal pad / font_size
@@ -44,7 +53,10 @@ class StyleMold:
     outline_color: str = "&H00000000"
     shadow_color: str = "&H96000000"
     position: str = "bottom"
-    font_family: str = "Noto Serif SC"
+    # font_family, like font_size_ratio (xr) above, is a REQUIRED config value
+    # with NO code default: molds carry None, and the resolver fills it from the
+    # style YAML, raising if it is still missing.
+    font_family: Optional[str] = None
 
 
 MOLDS: dict[str, StyleMold] = {
@@ -122,29 +134,62 @@ def _apply_overrides(base: StyleDef, overrides: dict) -> StyleDef:
     return _replace(base, **picked) if picked else base
 
 
-class YamlStyleResolver(StyleResolver):
-    """Resolve styles from a directory of YAML files + built-in molds.
+# Packaged default style configs. These YAML files hold the master variable xr
+# (font_size_ratio) that used to be hard-coded in code — so xr now lives in
+# config, never as a literal in molds.py / __init__.py.
+_DEFAULT_STYLES_DIR = Path(__file__).parent / "styles"
 
-    Lookup order: <name>.yaml override → built-in mold → DEFAULT_STYLE.
-    One path, one type (fixes bug #3).
+
+class YamlStyleResolver(StyleResolver):
+    """Resolve styles from YAML files (two layers) + built-in molds.
+
+    Two config layers, project beats default:
+      * ``config_dir`` — optional project-level overrides (highest priority).
+      * ``default_dir`` — packaged default style configs (lowest priority);
+        this is where xr lives now that it is a required config value.
+
+    For a style, the default-layer ``<name>.yaml`` and project-layer
+    ``<name>.yaml`` are key-merged (project wins), expanded onto the named mold,
+    then run through ``require_xr``: a resolved style without xr raises
+    ConfigError instead of falling back to a code default (fixes bug #3 too —
+    one path, one type).
     """
 
-    def __init__(self, config_dir: Optional[str | Path] = None) -> None:
+    def __init__(
+        self,
+        config_dir: Optional[str | Path] = None,
+        default_dir: Optional[str | Path] = None,
+    ) -> None:
+        # project-level overrides (highest priority); may be None
         self.config_dir = Path(config_dir) if config_dir else None
+        # built-in default configs (lowest priority); defaults to packaged dir
+        self.default_dir = (
+            Path(default_dir) if default_dir is not None else _DEFAULT_STYLES_DIR
+        )
+
+    def _load_style_data(self, style_name: str) -> dict:
+        """Merge default-layer then project-layer YAML for a style (project wins)."""
+        merged: dict = {}
+        if self.default_dir:
+            merged.update(load_yaml(self.default_dir / f"{style_name}.yaml"))
+        if self.config_dir:
+            merged.update(load_yaml(self.config_dir / f"{style_name}.yaml"))
+        return merged
 
     def resolve(self, style_name: str, video_height: int) -> StyleDef:
-        # 1. YAML override
-        if self.config_dir:
-            yaml_path = self.config_dir / f"{style_name}.yaml"
-            data = load_yaml(yaml_path)
-            if data:
-                base_mold = MOLDS.get(data.get("mold", style_name), MOLDS["default"])
-                base = mold_to_style(base_mold)
-                if data.get("mold"):
-                    base = _replace(base, name=style_name)
-                return _apply_overrides(base, data)
-        # 2. built-in mold
-        if style_name in MOLDS:
-            return mold_to_style(MOLDS[style_name])
-        # 3. default
-        return DEFAULT_STYLE
+        data = self._load_style_data(style_name)
+        if data:
+            base_mold = MOLDS.get(data.get("mold", style_name), MOLDS["default"])
+            base = mold_to_style(base_mold)
+            if data.get("mold"):
+                base = _replace(base, name=style_name)
+            style = _apply_overrides(base, data)
+        elif style_name in MOLDS:
+            # built-in mold but no config supplied xr → require_xr will raise.
+            style = mold_to_style(MOLDS[style_name])
+        else:
+            style = DEFAULT_STYLE
+        # Required-config gates: xr and font_family must have been provided by
+        # config, or these raise (no code-level fallback for either).
+        style = require_xr(style, style_name)
+        return require_font_family(style, style_name)

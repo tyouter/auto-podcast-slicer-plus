@@ -1,0 +1,7 @@
+# Default config for the built-in "default" style.
+# xr (font_size_ratio) is the required subtitle master variable; it lives here,
+# not in code.
+mold: default
+font_size_ratio: 0.052
+# font_family is required config now (no code default); keep the prior font.
+font_family: Noto Serif SC
