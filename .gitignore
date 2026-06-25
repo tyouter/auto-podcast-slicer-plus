@@ -1,6 +1,9 @@
 # Output directories (rendered media, test artifacts)
 _e2e_out/
 _m2_out/
+task_*/
+tests/
+_verify/
 _m3_out/
 
 # Python
