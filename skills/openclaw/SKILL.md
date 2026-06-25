@@ -51,7 +51,7 @@ results = run_from_transcript(t, cuts, "fresh", Engines(),
 - **Never hand-write AutoModel()**. Use garden_core's stage_asr API.
 - **Always run align + proofread**. Both are mandatory.
 - `enable_llm=True` must be explicit. Default is off.
-- Unknown cut points → transcribe first, then plan. See `skills/hermes/references/transcribe-then-cut-workflow.md`.
+- Unknown cut points → transcribe first, then plan. See `references/transcribe-then-cut-workflow.md`.
 - Multi-source videos → transcribe concatenated audio, render per-source with offset timestamps.
 
 ## Quality
@@ -66,7 +66,7 @@ results = run_from_transcript(t, cuts, "fresh", Engines(),
 
 ## Reference
 
-Full docs in `skills/hermes/references/`. Key files:
+Full docs in `references/`. Key files:
 - `garden-core-api.md` — API reference
 - `transcribe-then-cut-workflow.md` — unknown content workflow
 - `proofread-llm-required.md` — LLM config iron law
