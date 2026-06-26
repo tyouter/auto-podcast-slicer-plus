@@ -39,7 +39,7 @@ from garden_core.pipeline import run_from_transcript, Engines, PipelineOptions
 from garden_core.stage_render import RenderOptions
 from garden_core.types import CutPoint
 
-cuts = [CutPoint(clip_id="v1", start_s=10.0, end_s=60.0, style_name="fresh")]
+cuts = [CutPoint(clip_id="v1", source_media="source/video.mp4", start_s=10.0, end_s=60.0, style_name="fresh")]
 results = run_from_transcript(t, cuts, "fresh", Engines(),
     PipelineOptions(source_media="source/video.mp4",
                     render=RenderOptions(output_dir="output/",

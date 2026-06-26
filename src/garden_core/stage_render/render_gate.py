@@ -33,17 +33,24 @@ decision.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
-from dataclasses import dataclass
+import subprocess
+from dataclasses import dataclass, field
+from typing import Optional
+
+from garden_core.infra.media_probe import probe_media
 
 log = logging.getLogger(__name__)
 
 __all__ = [
+    "AuditReport",
     "GateViolation",
     "RenderGateError",
     "ParsedAss",
+    "audit_dir",
     "parse_ass",
     "check_ass_pair",
     "check_render_result",
@@ -327,3 +334,297 @@ def gate_results(results, *, font_ratio_tol: float = DEFAULT_FONT_RATIO_TOL) -> 
     if all_violations:
         raise RenderGateError(all_violations)
     log.info("render gate: clips passed all mechanical specs")
+
+
+# --------------------------------------------------------------------------- #
+# Directory-level audit (T3): combines file-existence, ffprobe specs,
+# ASS cue count, and ASS content gate into a single AuditReport.
+# --------------------------------------------------------------------------- #
+
+@dataclass
+class AuditReport:
+    """Structured result of ``audit_dir()``.
+
+    Carries all blocking violations and any skipped (non-blocking) mechanical
+    items (e.g. ffprobe unavailable).  Provides serialisation for downstream
+    agents (``to_dict()`` / ``save()``).
+    """
+
+    output_dir: str
+    violations: list[GateViolation] = field(default_factory=list)
+    skipped: list[GateViolation] = field(default_factory=list)
+
+    @property
+    def passed(self) -> bool:
+        return len(self.violations) == 0
+
+    def to_dict(self) -> dict:
+        def _v(v: GateViolation) -> dict:
+            return {
+                "clip_id": v.clip_id,
+                "dimension": v.dimension,
+                "orientation": v.orientation,
+                "detail": v.detail,
+                "expected": v.expected,
+                "actual": v.actual,
+            }
+        return {
+            "output_dir": self.output_dir,
+            "passed": self.passed,
+            "violations": [_v(v) for v in self.violations],
+            "skipped": [_v(v) for v in self.skipped],
+        }
+
+    def save(self, path: str) -> None:
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(self.to_dict(), fh, ensure_ascii=False, indent=2)
+
+
+# --------------------------------------------------------------------------- #
+# Internal helpers for audit_dir
+# --------------------------------------------------------------------------- #
+
+def _discover_clip_ids(output_dir: str) -> set[str]:
+    """Extract unique clip_ids from filenames in *output_dir*.
+
+    Discovers from ``{cid}_horizontal.mp4``, ``{cid}_vertical.mp4``,
+    and ``{cid}.ass`` files.  ``{cid}_vertical.ass`` is intentionally
+    excluded so it does not create a spurious clip_id entry — it is
+    always paired with its horizontal ``.ass`` via ``_vertical_ass_path``.
+    """
+    cids: set[str] = set()
+    try:
+        names = os.listdir(output_dir)
+    except FileNotFoundError:
+        return cids
+    for fname in names:
+        if fname.endswith("_horizontal.mp4"):
+            cids.add(fname[: -len("_horizontal.mp4")])
+        elif fname.endswith("_vertical.mp4"):
+            cids.add(fname[: -len("_vertical.mp4")])
+        elif fname.endswith(".ass") and not fname.endswith("_vertical.ass"):
+            cids.add(fname[: -len(".ass")])
+    return cids
+
+
+def _probe_codec(mp4_path: str, ffprobe_bin: str = "ffprobe") -> Optional[str]:
+    """Return the codec_name of the first video stream, or *None* on failure."""
+    cmd = [
+        ffprobe_bin, "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=codec_name",
+        "-of", "csv=p=0",
+        mp4_path,
+    ]
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=30,
+            encoding="utf-8", errors="replace",
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        return None
+    return (proc.stdout.strip() or None)
+
+
+def _count_ass_cues(ass_path: str) -> int:
+    """Count ``Dialogue:`` lines in an ASS file (all layers)."""
+    try:
+        with open(ass_path, "r", encoding="utf-8") as fh:
+            return sum(1 for line in fh if line.startswith("Dialogue:"))
+    except (FileNotFoundError, PermissionError):
+        return 0
+
+
+# --------------------------------------------------------------------------- #
+# Public: audit_dir
+# --------------------------------------------------------------------------- #
+
+def audit_dir(
+    output_dir: str,
+    *,
+    pattern: str = "{clip_id}",
+    expected_horizontal: tuple[int, int] = (3840, 2160),
+    expected_vertical: tuple[int, int] = (1080, 1920),
+    expected_codec: str = "h264",
+    render_horizontal: bool = True,
+    render_vertical: bool = True,
+    raise_on_fail: bool = True,
+    font_ratio_tol: float = DEFAULT_FONT_RATIO_TOL,
+    ffprobe_bin: str = "ffprobe",
+) -> AuditReport:
+    """Audit a rendered output directory against mechanical quality specs.
+
+    Four checks on every discovered clip:
+
+    1. **File existence** — ``{cid}_horizontal.mp4`` / ``{cid}_vertical.mp4`` /
+       ``{cid}.ass`` / ``{cid}_vertical.ass`` must all be present (subject to
+       *render_horizontal* / *render_vertical*).  Missing → ``missing_file``.
+    2. **ffprobe resolution & codec** — for each existing mp4, verify width×height
+       against *expected_horizontal* / *expected_vertical* and codec against
+       *expected_codec*.  Mismatch → ``resolution`` / ``codec``.
+    3. **ASS cue count** — every ``.ass`` must have ≥1 ``Dialogue:`` line.
+       Zero → ``zero_cues``.
+    4. **ASS content gate** — delegates to :func:`check_ass_pair` (font-ratio +
+       safe-area).  Violations retain their original ``dimension``
+       (``font_ratio`` / ``safe_area``).
+
+    If *raise_on_fail* is ``True`` (default) and any blocking violation exists,
+    :class:`RenderGateError` is raised with the full violation list.  Skipped
+    items (ffprobe unavailable) are **never** blocking.
+
+    Parameters
+    ----------
+    output_dir:
+        Path to the directory containing rendered clip artifacts.
+    pattern:
+        Naming pattern (unused — kept for API future-proofing; the render
+        stage always uses ``{clip_id}_horizontal.mp4`` etc.).
+    expected_horizontal:
+        Expected (width, height) for horizontal mp4 files.
+    expected_vertical:
+        Expected (width, height) for vertical mp4 files.
+    expected_codec:
+        Expected video codec (e.g. ``"h264"``).
+    render_horizontal / render_vertical:
+        Whether horizontal / vertical orientation was rendered.  Missing files
+        are only flagged when the corresponding orientation is enabled.
+    raise_on_fail:
+        If ``True``, raise :class:`RenderGateError` on any blocking violation.
+    font_ratio_tol:
+        Passed through to :func:`check_ass_pair`.
+    ffprobe_bin:
+        Path or name of the ffprobe binary.
+    """
+    clip_ids = _discover_clip_ids(output_dir)
+    violations: list[GateViolation] = []
+    skipped: list[GateViolation] = []
+
+    for cid in sorted(clip_ids):
+        # ---- file existence -------------------------------------------------
+        h_mp4 = os.path.join(output_dir, f"{cid}_horizontal.mp4")
+        v_mp4 = os.path.join(output_dir, f"{cid}_vertical.mp4")
+        h_ass = os.path.join(output_dir, f"{cid}.ass")
+        v_ass = _vertical_ass_path(h_ass)
+
+        if render_horizontal:
+            for path, label in [(h_mp4, "H_MP4"), (h_ass, "H_ASS")]:
+                if not os.path.exists(path):
+                    violations.append(GateViolation(
+                        clip_id=cid, dimension="missing_file",
+                        orientation="horizontal",
+                        detail=f"missing {label}: {path}",
+                        expected="file exists", actual="not found",
+                    ))
+        if render_vertical:
+            for path, label in [(v_mp4, "V_MP4"), (v_ass, "V_ASS")]:
+                if not os.path.exists(path):
+                    violations.append(GateViolation(
+                        clip_id=cid, dimension="missing_file",
+                        orientation="vertical",
+                        detail=f"missing {label}: {path}",
+                        expected="file exists", actual="not found",
+                    ))
+
+        # ---- ffprobe mechanical specs ---------------------------------------
+        for orientation, mp4_path, expected_wh in [
+            ("horizontal", h_mp4, expected_horizontal),
+            ("vertical", v_mp4, expected_vertical),
+        ]:
+            enabled = render_horizontal if orientation == "horizontal" else render_vertical
+            if not enabled:
+                continue
+            if not os.path.exists(mp4_path):
+                continue  # already reported as missing_file above
+
+            ffprobe_ok = True
+
+            # Resolution check via probe_media
+            info = probe_media(mp4_path, ffprobe_bin=ffprobe_bin)
+            if info is None:
+                ffprobe_ok = False
+            else:
+                if (info.width, info.height) != expected_wh:
+                    violations.append(GateViolation(
+                        clip_id=cid, dimension="resolution",
+                        orientation=orientation,
+                        detail=f"expected {expected_wh[0]}x{expected_wh[1]}",
+                        expected=f"{expected_wh[0]}x{expected_wh[1]}",
+                        actual=f"{info.width}x{info.height}",
+                    ))
+
+            # Codec check (separate ffprobe call — probe_media doesn't return codec)
+            codec = _probe_codec(mp4_path, ffprobe_bin=ffprobe_bin)
+            if codec is None:
+                ffprobe_ok = False
+            elif codec != expected_codec:
+                violations.append(GateViolation(
+                    clip_id=cid, dimension="codec",
+                    orientation=orientation,
+                    detail=f"expected codec={expected_codec}, got {codec}",
+                    expected=expected_codec,
+                    actual=codec,
+                ))
+
+            if not ffprobe_ok:
+                skipped.append(GateViolation(
+                    clip_id=cid, dimension="skipped",
+                    orientation=orientation,
+                    detail=f"ffprobe unavailable for mechanical check on {mp4_path}",
+                    expected="ffprobe available",
+                    actual="ffprobe returned None or failed",
+                ))
+
+        # ---- ASS cue count --------------------------------------------------
+        for orientation, ass_path in [("horizontal", h_ass), ("vertical", v_ass)]:
+            enabled = render_horizontal if orientation == "horizontal" else render_vertical
+            if not enabled:
+                continue
+            if not os.path.exists(ass_path):
+                continue  # already reported as missing_file above
+            if _count_ass_cues(ass_path) == 0:
+                violations.append(GateViolation(
+                    clip_id=cid, dimension="zero_cues",
+                    orientation=orientation,
+                    detail=f"ASS file has zero Dialogue: lines: {ass_path}",
+                    expected=">=1 Dialogue: line",
+                    actual="0",
+                ))
+
+        # ---- ASS content gate -----------------------------------------------
+        h_text: Optional[str] = None
+        v_text: Optional[str] = None
+        if render_horizontal and os.path.exists(h_ass):
+            with open(h_ass, "r", encoding="utf-8") as fh:
+                h_text = fh.read()
+        if render_vertical and os.path.exists(v_ass):
+            with open(v_ass, "r", encoding="utf-8") as fh:
+                v_text = fh.read()
+        if h_text is not None or v_text is not None:
+            try:
+                violations += check_ass_pair(cid, h_text, v_text,
+                                             font_ratio_tol=font_ratio_tol)
+            except ValueError as e:
+                violations.append(GateViolation(
+                    clip_id=cid, dimension="ass_gate",
+                    orientation="pair",
+                    detail=f"ASS parse failed: {e}",
+                    expected="valid ASS document",
+                    actual="parse error",
+                ))
+
+    report = AuditReport(
+        output_dir=output_dir,
+        violations=violations,
+        skipped=skipped,
+    )
+
+    if raise_on_fail and violations:
+        raise RenderGateError(violations)
+
+    if violations:
+        log.warning("audit_dir: %d violation(s) in %s", len(violations), output_dir)
+    else:
+        log.info("audit_dir: all %d clip(s) passed mechanical audit", len(clip_ids))
+    return report

@@ -20,7 +20,7 @@ OUTPUT_DIR = r"D:\Hermes\projects\garden-production\output\_e2e_test"
 
 transcript = load_transcript_json(TRANSCRIPT)
 cuts = [
-    CutPoint(clip_id="TEST", start_s=55.0, end_s=75.0,
+    CutPoint(clip_id="TEST", source_media=SOURCE_VIDEO, start_s=55.0, end_s=75.0,
              style_name="cinematic", title="Test Clip"),
 ]
 results = run_from_transcript(

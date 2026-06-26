@@ -1,0 +1,93 @@
+# =========================================================================== #
+# references/project.example.yaml
+# =========================================================================== #
+# 本文件展示 project.yaml 的完整结构，分「单源」和「多源」两种形态。
+# 所有数值 / 路径均为占位符 —— 禁止放入真实项目数据（AGENTS.md 卫生铁律）。
+# =========================================================================== #
+
+# =========================================================================== #
+# 示例 1：单源项目（最简配置）
+# =========================================================================== #
+# 只有一个源媒体文件，所有 cut_points 引用同一个 source id。
+# 省略所有默认值的字段可完全不写。
+
+# --- 单源剪断线 ----------------------------------------------------------------
+# meta:
+#   name: <my-project>
+#   root: <project-root>
+#
+# sources:
+#   - id: SRC1
+#     path: <source-video>.mp4
+#
+# transcript:
+#   audio_path: <source-audio>.wav
+#   path: transcript.json
+#
+# errata_path: corrections.yaml
+#
+# cut_points:
+#   - { clip_id: t01, source: SRC1, start_s: 0.0,  end_s: 35.0,  title: "<clip-1-title>" }
+#   - { clip_id: t02, source: SRC1, start_s: 45.0, end_s: 90.0,  title: "<clip-2-title>" }
+#   - { clip_id: t03, source: SRC1, start_s: 120.0, end_s: 180.0 }
+#
+# style_name: default
+
+# =========================================================================== #
+# 示例 2：多源项目（SRC1 + SRC2 + source_offset_s）
+# =========================================================================== #
+# 结构对齐 tesla_stage04 的多源形态但值全用占位符。
+# SRC1 覆盖原始时间轴 0–850s，SRC2 覆盖 850–1294s（source_offset_s=850）。
+
+meta:
+  name: <my-multisource-project>
+  root: <project-root>
+
+sources:
+  - id: SRC1
+    path: <source-part1>.mp4
+    timeline_start_s: 0.0
+    timeline_end_s: 850.0
+
+  - id: SRC2
+    path: <source-part2>.mp4
+    timeline_start_s: 850.0
+    timeline_end_s: 1294.0
+    source_offset_s: 850.0
+
+transcript:
+  audio_path: <audio-extracted>.wav
+  path: transcript.json
+
+errata_path: corrections.yaml
+
+proof_opts:
+  enable_llm: true
+
+cut_points:
+  - { clip_id: t01, source: SRC1, start_s: 0.0,   end_s: 35.0,  title: "<clip-01>" }
+  - { clip_id: t02, source: SRC1, start_s: 75.0,  end_s: 120.0, title: "<clip-02>" }
+  - { clip_id: t03, source: SRC1, start_s: 140.0, end_s: 195.0, title: "<clip-03>" }
+  - { clip_id: t04, source: SRC1, start_s: 215.0, end_s: 275.0, title: "<clip-04>" }
+  - { clip_id: t05, source: SRC1, start_s: 295.0, end_s: 355.0, title: "<clip-05>" }
+  - { clip_id: t06, source: SRC1, start_s: 375.0, end_s: 435.0, title: "<clip-06>" }
+  - { clip_id: t07, source: SRC1, start_s: 455.0, end_s: 515.0, title: "<clip-07>" }
+  - { clip_id: t08, source: SRC1, start_s: 535.0, end_s: 595.0, title: "<clip-08>" }
+  - { clip_id: t09, source: SRC1, start_s: 615.0, end_s: 675.0, title: "<clip-09>" }
+  - { clip_id: t10, source: SRC1, start_s: 695.0, end_s: 755.0, title: "<clip-10>" }
+  - { clip_id: t11, source: SRC1, start_s: 775.0, end_s: 845.0, title: "<clip-11>" }
+  - { clip_id: t12, source: SRC2, start_s: 860.0, end_s: 911.0, title: "<clip-12>" }
+  - { clip_id: t13, source: SRC2, start_s: 925.0, end_s: 985.0, title: "<clip-13>" }
+  - { clip_id: t14, source: SRC2, start_s: 1005.0, end_s: 1065.0, title: "<clip-14>" }
+  - { clip_id: t15, source: SRC2, start_s: 1085.0, end_s: 1145.0, title: "<clip-15>" }
+  - { clip_id: t16, source: SRC2, start_s: 1165.0, end_s: 1225.0, title: "<clip-16>" }
+  - { clip_id: t17, source: SRC2, start_s: 1240.0, end_s: 1294.0, title: "<clip-17>" }
+
+style_name: default
+
+render_opts:
+  horizontal_width: 1920
+  horizontal_height: 1080
+  crf: 18
+
+output_dir: output

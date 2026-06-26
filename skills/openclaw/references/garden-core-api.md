@@ -15,8 +15,8 @@ from garden_core.types import CutPoint
 
 transcript = load_transcript_json("transcript_aligned.json")
 cuts = [
-    CutPoint(clip_id="v1", start_s=10.0, end_s=120.0, style_name="cinematic", title="分岔路径v1"),
-    CutPoint(clip_id="v2", start_s=200.0, end_s=350.0, style_name="cinematic", title="分岔路径v2"),
+    CutPoint(clip_id="v1", source_media="/path/to/source.mp4", start_s=10.0, end_s=120.0, style_name="cinematic", title="分岔路径v1"),
+    CutPoint(clip_id="v2", source_media="/path/to/source.mp4", start_s=200.0, end_s=350.0, style_name="cinematic", title="分岔路径v2"),
 ]
 engines = Engines()  # 空引擎 = 跳过对齐+校对，直接分段渲染
 opts = PipelineOptions(source_media="/path/to/source.mp4")
@@ -40,7 +40,7 @@ results = run_from_transcript(transcript, cuts, "cinematic", engines, opts, audi
 | `Segment` | 单条 ASR 片段 | `text`, `start_s`, `end_s`, `speaker`, `words` |
 | `Word` | 词级时间戳 | `text`, `start_s`, `end_s` |
 | `Cue` | 字幕单元（阶段 4→7 流通） | `index`, `text`, `start_s`, `end_s` |
-| `CutPoint` | 用户指定的裁剪边界 | `clip_id`, `start_s`, `end_s`, `style_name`, `title` |
+| `CutPoint` | 用户指定的裁剪边界 | `clip_id`, `source_media`, `start_s`, `end_s`, `style_name`, `title`, `source_offset_s` |
 | `ClipPlan` | 裁剪计划（参数对象） | `clip_id`, `source_ref`, `start_s`, `end_s`, `cues` |
 | `StyleDef` | 字幕样式定义 | `name`, `font_family`, `font_size_ratio`, `outline_width`… |
 | `RenderResult` | 渲染产出 | `clip_id`, `horizontal_mp4`, `vertical_mp4`, `srt_path`, `ass_path` |
@@ -123,6 +123,7 @@ def produce(project_dir: str, protocol: dict):
     cuts = [
         CutPoint(
             clip_id=c["id"],
+            source_media=source_media,
             start_s=c["start_s"],
             end_s=c["end_s"],
             style_name=c.get("style", "cinematic"),

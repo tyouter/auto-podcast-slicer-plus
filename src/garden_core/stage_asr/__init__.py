@@ -54,7 +54,11 @@ def transcribe(
     engine: Transcriber,
     hotwords: tuple[str, ...] | list[str] = (),
 ) -> Transcript:
-    """Run stage 1: audio → Transcript (seconds-based, no words yet)."""
+    """Run stage 1: audio → Transcript (seconds-based, no words yet).
+
+    Step API: part of ``garden_core.steps``. Persist via
+    ``save_transcript_json`` / reload via ``load_transcript_json``.
+    """
     return engine.transcribe(audio, tuple(hotwords))
 
 

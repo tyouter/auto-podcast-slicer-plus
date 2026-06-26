@@ -55,7 +55,11 @@ def _segments_have_word_timing(transcript: Transcript) -> bool:
 
 
 def align(transcript: Transcript, aligner: Aligner, audio_path: str) -> Transcript:
-    """Run stage 2: fill word-level timing. No-op if already aligned."""
+    """Run stage 2: fill word-level timing. No-op if already aligned.
+
+    Step API: part of ``garden_core.steps``. Persist via
+    ``save_transcript_json`` / reload via ``load_transcript_json``.
+    """
     if _segments_have_word_timing(transcript):
         return transcript
     if not aligner.needs_audio:

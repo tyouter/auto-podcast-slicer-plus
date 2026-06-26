@@ -93,7 +93,11 @@ def resolve_style(
     video_height: int,
     resolver: StyleResolver,
 ) -> StyleDef:
-    """Run stage 6: name → resolved StyleDef (font sizes scaled to video)."""
+    """Run stage 6: name → resolved StyleDef (font sizes scaled to video).
+
+    Support helper for step 6 render — not part of ``garden_core.steps``.
+    Called internally by the pipeline before passing ``StyleDef`` to ``render()``.
+    """
     style = resolver.resolve(style_name, video_height)
     # font_size_px is derived on demand; nothing to mutate on the frozen object.
     return style

@@ -17,9 +17,106 @@ audio ─▶ [1 asr]        ─▶ Transcript
        ─▶ [7 render]     ─▶ RenderResult (horizontal + vertical mp4, srt, ass)
 ```
 
+## Step API (public pipeline entry points)
+
+Each step is a bare-verb function re-exported from ``garden_core.steps``.
+Stage 6 (style resolution) is an internal helper of step 6 — ``render()``
+consumes a resolved ``StyleDef``; the pipeline resolves it via ``resolve_style``
+before calling ``render()``.
+
+| step | function | source module | product | disk pair |
+|------|----------|---------------|---------|-----------|
+| 1 | ``transcribe(audio, engine, hotwords)`` | ``stage_asr`` | ``Transcript`` | ``save_transcript_json`` / ``load_transcript_json`` |
+| 2 | ``align(transcript, aligner, audio_path)`` | ``stage_align`` | ``Transcript`` | ``save_transcript_json`` / ``load_transcript_json`` |
+| 3 | ``proofread(transcript, errata, llm, opts, audio_path)`` | ``stage_proofread`` | ``Transcript`` | ``save_transcript_json`` / ``load_transcript_json`` |
+| 4 | ``segment(transcript, opts)`` | ``stage_segment`` | ``tuple[Cue, ...]`` | *(intermediate — feeds step 5)* |
+| 5 | ``cut(transcript, cues, cut_points)`` | ``stage_cut`` | ``tuple[ClipPlan, ...]`` | *(intermediate — feeds step 6)* |
+| 6 | ``render(clip, style, opts)`` | ``stage_render`` | ``RenderResult`` | ``RenderResult`` fields are file paths |
+
+Import::
+
+    from garden_core.steps import transcribe, align, proofread, segment, cut, render
+
 Each stage is a pure function `(input data, injected engines) → output data`.
 The only code that touches the filesystem is `io_/`. Everything else builds
 immutable values.
+
+## Project management layer (T7–T12)
+
+`garden_core.project` is an **optional orchestration layer** on top of the step
+API.  It makes a *project* a first-class citizen (D1): a `project.yaml` + a
+directory tree, so an agent never hand-rolls a transcribe/render script.  It
+does **not** modify the three public pipeline entry points
+(`run_from_audio` / `run_from_transcript` / `run_montage`).
+
+### Public API
+
+Import::
+
+    from garden_core.project import (
+        ProjectConfig,     validate,
+        ProjectMeta,       SourceSpec,   CutPointSpec,
+        RenderOptsSpec,    ProofOptsSpec, TranscriptSpec,
+        create_project,    load_project, edit_project,
+        ProjectRun,
+    )
+
+| task | symbol | role |
+|------|--------|------|
+| T7 | `ProjectConfig` / `validate` | Top-level `project.yaml` data model + structural & reference validation (6 checks; no filesystem) |
+| T7 | `ProjectMeta` / `SourceSpec` / `CutPointSpec` / `RenderOptsSpec` / `ProofOptsSpec` / `TranscriptSpec` | Frozen spec value objects; each has `from_dict` / `to_dict` round-trip |
+| T8 | `create_project(name, root_dir, *, sources, ...)` | Create directory tree (`output/clips,fullcut,release` + `source/` + optional Wiki) + write `project.yaml` + `corrections.yaml` + `AGENTS.md` / `README.md`; returns validated `ProjectConfig` |
+| T9 | `load_project(path, *, strict=True)` | Accept yaml file path or root directory → resolve all relative paths to absolute → `validate()` → optional strict file-existence check; returns runtime-view config |
+| T10 | `edit_project(root_dir, /, **overrides)` | Read config → field-level override (scalar / nested-spec partial merge / set replacement) → `validate()` → atomic write back to `project.yaml` |
+| T11 | `ProjectRun(cfg, engines)` | Runtime orchestrator; each stage produces one artifact + writes `<root>/run_manifest.json` (`schema_version=1`) |
+| T11 | `ProjectRun.from_project_dir(dir, engines)` | One-liner load + run |
+| T11 | `ProjectRun.load(manifest_path, engines)` | Reconstruct a run from a previous manifest → can `.resume()` |
+| T11 | `run.transcribe() / .proofread() / .render() / .audit()` | Four staged methods, each returns `StageResult` |
+| T11 | `run.all()` | Full pipeline, always runs every stage (idempotent overwrite) |
+| T11 | `run.resume()` | Skip stages marked `done` in manifest whose artifact still exists (D5 naive skip) |
+| T12 | `run.rerender(clip_ids)` | Re-render only specified clips (`skip_existing=False` override); no re-transcribe / re-proofread |
+| T12 | `run.reproofread(errata=None, *, rerender_clip_ids=None)` | Incremental correction (optional temporary `ErrataConfig`, not persisted) + optional auto re-render of specified clips |
+
+### `project.yaml` as first-class citizen (D1)
+
+Three previously scattered config sources are unified into `project.yaml` +
+`corrections.yaml` + style yaml (`stage_style/styles/<name>.yaml`).  The single
+authoritative schema reference is `schema/project.schema.yaml`.
+
+### Multi-source translation
+
+```
+cfg.cut_points  (CutPointSpec: global timeline + source id)
+    → _translate_cut_points()
+    → types.CutPoint  (source_media = absolute path + source_offset_s)
+```
+
+One `run.render()` replaces hand-rolled multi-source batch scripts.
+
+### `run_manifest.json` (D6)
+
+```json
+{
+  "schema_version": 1,
+  "project": {"name": "...", "root": "..."},
+  "updated": "<iso8601>",
+  "stages": [
+    {"stage": "transcribe", "status": "done", "artifact_path": "...",
+     "params": {...}, "started": "...", "finished": "..."}
+  ]
+}
+```
+
+`resume()` reads this manifest and skips stages whose `status=="done"` and whose
+artifact file still exists (D5).  `ProjectRun.load(manifest)` rebuilds a run
+from a prior manifest for continuation.
+
+### Design constraints (hard)
+
+- Does **not** modify `run_from_audio` / `run_from_transcript` / `run_montage`
+- Does **not** modify any `stage_*` / `io_*` / `render_gate` / `types` module
+- Does **not** modify T7–T10 project modules (schema / config / create / load / edit)
+- Manifest is **not** concurrency-safe (single-machine serial assumption)
 
 ## Problem → fix map
 
@@ -73,6 +170,8 @@ lock this invariant, including a repeated-round stress test.
 - The cross-boundary problem (Agent in Docker, editing on Windows CUDA). This
   rewrite is a *library*. The watcher / HTTP-service layer is a future layer on
   top. The legacy watcher is preserved unchanged in the old repo.
+  `garden_core.project` is an in-library orchestration layer — still library, not
+  a watcher or server.
 - A full multimodal dual-channel pass (audio bytes to a VLM). The current
   `dual_channel.py` approximates "audio-conditioned" correction with context
   windows; it's structured to swap in a true audio-capable model later.
@@ -82,7 +181,13 @@ lock this invariant, including a repeated-round stress test.
 
 ## Verification
 
-- 80 unit tests pass (`pytest tests/`).
+- 303 unit tests pass (`pytest tests/`), with 7 pre-existing failures in
+  `test_render.py` (5: ASS TypeErrors from font-size hardening) and
+  `test_stage_proofread.py` (2: OpenCC normalize), unrelated to project layer.
+  Includes 164 project-management tests across 7 test files
+  (`test_project_config` / `test_project_validate` / `test_create_project` /
+  `test_load_project` / `test_project_edit` / `test_project_run` /
+  `test_project_rerun`).
 - End-to-end: a real 4K source + legacy transcript renders both horizontal and
   vertical mp4 with burned-in subtitles (`tests/smoke_e2e.py`).
 - MMS forced alignment verified on real audio: 88 char-level timestamps

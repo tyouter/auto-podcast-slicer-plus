@@ -80,6 +80,7 @@ def load_transcript_json(path: str | Path) -> Transcript:
         engine=str(meta.get("engine", "unknown")),
         language=str(meta.get("language", "zh")),
         duration_s=duration,
+        corrections_applied=tuple(meta.get("corrections_applied", ()) or ()),
     )
 
 

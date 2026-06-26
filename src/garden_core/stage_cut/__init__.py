@@ -18,6 +18,14 @@ def cut(
     """Run stage 5: build a ClipPlan per CutPoint from the source timeline.
 
     Cues overlapping a clip window are included and rebased to clip-local time.
+
+    Each ClipPlan's ``source_ref`` is set to ``cp.source_media`` (T4 breaking
+    change — ``transcript.source_file`` is no longer used). ``source_offset_s``
+    translates global-timeline cut windows into source-local seek times for
+    multi-source rendering.
+
+    Step API: part of ``garden_core.steps``. Returns intermediate tuple;
+    no disk pair — output feeds directly to step 6 (render).
     """
     plans: list[ClipPlan] = []
     for cp in cut_points:
@@ -37,9 +45,9 @@ def cut(
             ))
         plans.append(ClipPlan(
             clip_id=cp.clip_id,
-            source_ref=transcript.source_file,
-            start_s=cp.start_s,
-            end_s=cp.end_s,
+            source_ref=cp.source_media,
+            start_s=cp.start_s - cp.source_offset_s,
+            end_s=cp.end_s - cp.source_offset_s,
             cues=tuple(local_cues),
             style_name=cp.style_name,
             title=cp.title,

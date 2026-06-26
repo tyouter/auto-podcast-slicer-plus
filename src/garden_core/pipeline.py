@@ -42,6 +42,54 @@ class Engines:
     llm: LLMClient = field(default_factory=NoLLMClient)
     style_resolver: Optional[StyleResolver] = None
 
+    @classmethod
+    def from_env(
+        cls,
+        *,
+        llm_default_model: str = "deepseek-chat",
+        llm_timeout: float = 300.0,
+        env_path: Optional[str] = None,
+        transcriber: Optional[Transcriber] = None,
+        aligner: Optional[Aligner] = None,
+        style_resolver: Optional[StyleResolver] = None,
+    ) -> "Engines":
+        """Build Engines from environment / .env file for the LLM client.
+
+        **D3 (decided)** — ``env_path`` is always caller-supplied; the library
+        never hard-codes a project-specific path. When given, each ``KEY=VALUE``
+        line is merged into ``os.environ`` (blank lines and ``#`` comments are
+        skipped).
+
+        If ``DEEPSEEK_API_KEY`` is present (after merging) a real ``LLMClient``
+        is created; otherwise the ``llm`` field degrades to ``NoLLMClient`` so
+        callers never get a hard crash from env setup alone — the LLM layer
+        itself will report UNAVAILABLE when called.
+
+        ``transcriber`` / ``aligner`` / ``style_resolver`` are heavy stateful
+        objects (GPU models, etc.) and are **not** constructed here — pass them
+        through as keyword arguments when needed.
+        """
+        # --- merge .env file into os.environ (caller-supplied path only) ------
+        if env_path is not None:
+            _merge_env_file(env_path)
+
+        # --- LLM client: real if key present, NoLLMClient otherwise ----------
+        api_key = os.environ.get("DEEPSEEK_API_KEY", "")
+        if api_key:
+            llm: LLMClient = LLMClient(
+                default_model=llm_default_model,
+                timeout=llm_timeout,
+            )
+        else:
+            llm = NoLLMClient()
+
+        return cls(
+            llm=llm,
+            transcriber=transcriber,
+            aligner=aligner,
+            style_resolver=style_resolver,
+        )
+
 
 @dataclass(frozen=True)
 class PipelineOptions:
@@ -58,6 +106,7 @@ class PipelineOptions:
     heal_gaps: bool = False        # run gap healing before segmentation
     heal_max_rounds: int = 5
     render_gate: bool = True        # mechanical post-render quality gate (BLOCKs bad clips)
+    skip_existing: bool = True      # T5 (D5): naive skip — if output mp4 exists, skip ffmpeg
 
 
 def run_from_transcript(
@@ -286,11 +335,17 @@ def _prepare_plans(
 
     # Stage 5: cut.
     plans = cut(transcript, cues, cut_points)
-    # Override source_ref with the real media file when provided (the loaded
-    # transcript's source_file is often the JSON path, not the media).
+    # Defensive fallback: only override source_ref when a plan doesn't already
+    # carry one. Since T4, cut() always writes cp.source_media into source_ref,
+    # so this branch is effectively dead for well-formed CutPoints; it is
+    # retained as a safety net for legacy callers that might produce empty
+    # source_ref plans through other code paths.
     if opts.source_media:
         from dataclasses import replace as _replace
-        plans = tuple(_replace(p, source_ref=opts.source_media) for p in plans)
+        plans = tuple(
+            _replace(p, source_ref=opts.source_media) if not p.source_ref else p
+            for p in plans
+        )
     return plans
 
 
@@ -321,6 +376,13 @@ def _render_plans(
         if opts.render is None:
             log.warning("no RenderOptions — skipping render, returning plans only")
             continue
+        # T5 (D5): naive skip — if all enabled output mp4s exist, reuse them.
+        if opts.skip_existing:
+            skipped = _maybe_skip(plan, opts.render, style_name or plan.style_name)
+            if skipped is not None:
+                log.info("skip_existing: %s already rendered — skipping ffmpeg", plan.clip_id)
+                results.append(skipped)
+                continue
         results.append(render(plan, style, opts.render))
 
     # Independent mechanical render gate: read the rendered ASS artifacts and
@@ -332,6 +394,40 @@ def _render_plans(
         from garden_core.stage_render.render_gate import gate_results
         gate_results(results)
     return results
+
+
+def _maybe_skip(plan: ClipPlan, render_opts: RenderOptions, style_name: str) -> Optional[RenderResult]:
+    """Return a RenderResult for already-rendered mp4s, or None if any is missing.
+
+    T5 (D5) naive file-existence check: if every enabled orientation's mp4
+    already sits in *output_dir*, skip the expensive ffmpeg render and return a
+    light reference to the existing files.  The caller appends the result and
+    continues — the render gate still inspects the (existing) ASS artifacts.
+    """
+    h_path = os.path.join(render_opts.output_dir, f"{plan.clip_id}_horizontal.mp4")
+    v_path = os.path.join(render_opts.output_dir, f"{plan.clip_id}_vertical.mp4")
+
+    h_ok = not render_opts.render_horizontal or os.path.exists(h_path)
+    v_ok = not render_opts.render_vertical or os.path.exists(v_path)
+
+    if not (h_ok and v_ok):
+        return None
+
+    srt_path = os.path.join(render_opts.output_dir, f"{plan.clip_id}.srt")
+    ass_path = os.path.join(render_opts.output_dir, f"{plan.clip_id}.ass")
+
+    return RenderResult(
+        clip_id=plan.clip_id,
+        horizontal_mp4=h_path if render_opts.render_horizontal else "",
+        vertical_mp4=v_path if render_opts.render_vertical else "",
+        srt_path=srt_path if os.path.exists(srt_path) else "",
+        ass_path=ass_path if os.path.exists(ass_path) else "",
+        metadata={
+            "skipped": True,
+            "style": style_name,
+            "cues": len(plan.cues),
+        },
+    )
 
 
 def _cues_as_transcript(cues):
@@ -398,3 +494,28 @@ def _make_gap_transcriber(transcriber):
                     pass
 
     return transcribe_slice
+
+
+def _merge_env_file(env_path: str) -> None:
+    """Parse a ``KEY=VALUE`` .env file and merge its entries into ``os.environ``.
+
+    Blank lines and lines starting with ``#`` are skipped. Values are stripped
+    of leading/trailing whitespace. This mirrors the ad-hoc env injection block
+    that was repeated across ``scripts/tesla_stage*.py``.
+    """
+    import os as _os
+
+    if not _os.path.exists(env_path):
+        return
+    with open(env_path, encoding="utf-8") as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if not _line or _line.startswith("#"):
+                continue
+            if "=" not in _line:
+                continue
+            _key, _val = _line.split("=", 1)
+            _key = _key.strip()
+            _val = _val.strip()
+            if _key:
+                _os.environ[_key] = _val

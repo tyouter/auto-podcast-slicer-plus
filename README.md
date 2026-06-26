@@ -91,7 +91,7 @@ from garden_core.stage_render import RenderOptions
 from garden_core.types import CutPoint
 
 transcript = load_transcript_json("transcript_aligned.json")
-cuts = [CutPoint(clip_id="c1", start_s=10.0, end_s=70.0, style_name="fresh")]
+cuts = [CutPoint(clip_id="c1", source_media="source/video.mp4", start_s=10.0, end_s=70.0, style_name="fresh")]
 
 results = run_from_transcript(
     transcript, cuts, "fresh",
@@ -107,6 +107,54 @@ results = run_from_transcript(
 For the full chain starting from audio (ASR → render), use `run_from_audio(...)`
 with a transcriber in `Engines(...)`. See `skills/*/references/garden-core-api.md`
 for the complete API.
+
+## Quick start — `project.yaml` (T7–T12)
+
+> *New in garden_core 2.0.* `garden_core.project` makes a project a first-class
+> citizen: one `project.yaml` describes sources / cut-points / render options /
+> proof options in a single place. An agent no longer hand-rolls a per-project
+> transcribe/render script — it calls `ProjectRun` orchestration methods instead.
+
+### Create a project
+
+```python
+from garden_core.project import create_project, SourceSpec, ProjectRun
+from garden_core.pipeline import Engines
+
+cfg = create_project(
+    name="<project-name>",
+    root_dir="/path/to/project",
+    sources=[SourceSpec(id="<src-1>", path="/path/to/source.mp4")],
+    audio_path="source/<name>.wav",
+    style="fresh",
+)
+# Writes: /path/to/project/{project.yaml, corrections.yaml, source/, output/...}
+```
+
+### Run the full pipeline
+
+```python
+run = ProjectRun.from_project_dir(
+    "/path/to/project",
+    Engines(transcriber=..., aligner=..., llm=...),
+)
+run.transcribe()   # then: human review transcript → edit corrections.yaml → proofread
+run.proofread()
+run.render()
+run.audit()
+# or one-shot: results = run.all()
+```
+
+### Incremental re-runs
+
+```python
+run.rerender(["<clip-id-1>", "<clip-id-3>"])         # re-render only those two
+run.reproofread(rerender_clip_ids=["<clip-id-1>"])    # incremental fix + auto re-render
+```
+
+The authoritative schema reference is `schema/project.schema.yaml`. Full
+architecture coverage is in [`ARCHITECTURE.md`](ARCHITECTURE.md) under
+“Project management layer”.
 
 ## Skills — drive the pipeline from an AI agent
 

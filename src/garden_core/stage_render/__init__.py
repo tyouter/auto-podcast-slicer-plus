@@ -44,7 +44,11 @@ class RenderOptions:
 
 
 def render(clip: ClipPlan, style: StyleDef, opts: RenderOptions) -> RenderResult:
-    """Run stage 7: write per-orientation ASS + SRT, then render mp4s."""
+    """Run stage 7: write per-orientation ASS + SRT, then render mp4s.
+
+    Step API: part of ``garden_core.steps``. Output ``RenderResult`` carries
+    file paths to generated mp4/ass/srt assets.
+    """
     from garden_core.io_.sink import ensure_dir, write_text_file
     from garden_core.stage_render.ass_writer import build_ass
     from garden_core.stage_render.srt_writer import build_srt

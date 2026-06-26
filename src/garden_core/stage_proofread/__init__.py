@@ -58,6 +58,9 @@ def proofread(
 
     Each layer returns a new immutable Transcript (with corrections_applied
     extended) — nothing mutates in place.
+
+    Step API: part of ``garden_core.steps``. Persist via
+    ``save_transcript_json`` / reload via ``load_transcript_json``.
     """
     from dataclasses import replace as _replace
 

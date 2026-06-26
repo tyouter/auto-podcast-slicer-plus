@@ -54,7 +54,11 @@ class SegmentOptions:
 
 
 def segment(transcript: Transcript, opts: SegmentOptions) -> tuple[Cue, ...]:
-    """Run stage 4: turn the timeline into a sequence of subtitle cues."""
+    """Run stage 4: turn the timeline into a sequence of subtitle cues.
+
+    Step API: part of ``garden_core.steps``. Returns intermediate tuple;
+    no disk pair — output feeds directly to step 5 (cut).
+    """
     if opts.strategy == "merger":
         from garden_core.stage_segment.merger import segment_by_merger
         cues = segment_by_merger(transcript, opts)

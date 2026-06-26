@@ -109,13 +109,20 @@ class Cue:
 
 @dataclass(frozen=True)
 class CutPoint:
-    """A requested clip boundary on the source timeline."""
+    """A requested clip boundary on the source timeline.
+
+    ``source_media`` is required (D2 breaking change — multi-source first-class).
+    ``source_offset_s`` translates the global-time cut window into the source
+    media's local timeline (e.g. for multi-source concatenation).
+    """
 
     clip_id: str
+    source_media: str
     start_s: float
     end_s: float
     style_name: str = "default"
     title: str = ""
+    source_offset_s: float = 0.0
 
 
 @dataclass(frozen=True)

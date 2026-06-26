@@ -1,0 +1,126 @@
+# =========================================================================== #
+# project.yaml 完整 schema 规范
+# =========================================================================== #
+# 本文档是 project.yaml 的**单一权威 schema 参考点**。
+# 字段名、类型、默认值、是否必填、引用关系均与 ProjectConfig.from_dict 的字段契约逐字一致。
+#
+# 注意：本文件**不是**运行时 JSON Schema 校验器（运行时校验靠 validate()），
+# 而是一份人/AI 可读的注释规范——T8–T13 的所有工具和 agent 都以本文件为准。
+# =========================================================================== #
+
+# --------------------------------------------------------------------------- #
+# meta  — 必填
+# --------------------------------------------------------------------------- #
+meta:
+  # 项目名（必填，string）
+  name: <project-name>
+
+  # 项目根目录（必填，string；绝对路径或相对于 cwd 的相对路径）
+  root: <project-root>
+
+
+# --------------------------------------------------------------------------- #
+# sources  — 必填，至少 1 条
+# --------------------------------------------------------------------------- #
+sources:
+    # id: string，必填，必须唯一。cut_points 通过 source 字段引用此 id。
+  - id: <source-id>
+    # path: string，必填。源媒体路径（相对 meta.root 或绝对路径）。
+    path: <source-path>
+    # timeline_start_s: float，默认 0.0。该源在【原始时间轴】上的起点（秒）。
+    timeline_start_s: 0.0
+    # timeline_end_s: float | null，默认 null。该源在原始时间轴上的终点。
+    # null 表示未限定（截止到该源的实际时长）。
+    timeline_end_s: null
+    # source_offset_s: float，默认 0.0。
+    # 翻译到源本地时间的偏移（与 types.CutPoint.source_offset_s 同义）。
+    # 多源串联时，第二个源通常设置 source_offset_s = 前一个源的 timeline_end_s。
+    source_offset_s: 0.0
+
+
+# --------------------------------------------------------------------------- #
+# transcript  — 必填
+# --------------------------------------------------------------------------- #
+transcript:
+  # audio_path: string，必填。ASR 源音频路径（相对 meta.root 或绝对）。
+  audio_path: <transcript-audio>
+  # path: string，必填。transcript.json 路径（step1/2 产物 + step3+ 输入）。
+  path: <transcript-json-path>
+
+
+# --------------------------------------------------------------------------- #
+# errata_path  — 可选，默认 "corrections.yaml"
+# --------------------------------------------------------------------------- #
+errata_path: corrections.yaml
+
+
+# --------------------------------------------------------------------------- #
+# proof_opts  — 可选（全部有默认值）
+# --------------------------------------------------------------------------- #
+proof_opts:
+  # enable_normalize: bool，默认 true。繁→简、著→着 等规范化。
+  enable_normalize: true
+  # enable_errata: bool，默认 true。确定性勘误表应用。
+  enable_errata: true
+  # enable_phonetic: bool，默认 true。音近字检测与修正。
+  enable_phonetic: true
+  # enable_llm: bool，默认 false。DeepSeek 语义修正。
+  enable_llm: false
+  # enable_dual_channel: bool，默认 true。BibbGPT 音频+文本双重校对。
+  enable_dual_channel: true
+  # llm_temperature: float，默认 0.1。LLM 采样温度。
+  llm_temperature: 0.1
+
+
+# --------------------------------------------------------------------------- #
+# cut_points  — 可选（默认 []）
+# --------------------------------------------------------------------------- #
+cut_points:
+    # clip_id: string，必填，必须唯一（如 "t01"）。
+  - clip_id: <clip-id>
+    # source: string，必填。引用 sources[].id（多源一等公民）。
+    source: <source-id>
+    # start_s: float，必填。原始时间轴起点（秒）。
+    start_s: <start-seconds>
+    # end_s: float，必填。原始时间轴终点（秒），必须 > start_s。
+    end_s: <end-seconds>
+    # style_name: string，默认 "default"。对应 stage_style/styles/<name>.yaml。
+    style_name: default
+    # title: string，默认 ""。clip 标题（可留空）。
+    title: ""
+
+
+# --------------------------------------------------------------------------- #
+# style_name  — 可选，默认 "default"
+# --------------------------------------------------------------------------- #
+# 必须对应 stage_style/styles/<name>.yaml 中的一个已存在样式。
+style_name: default
+
+
+# --------------------------------------------------------------------------- #
+# render_opts  — 可选（全部有默认值）
+# --------------------------------------------------------------------------- #
+render_opts:
+  # output_dir: string，默认 "output/clips"。渲染产物输出目录（相对 meta.root）。
+  output_dir: output/clips
+  # horizontal_width: int，默认 1920。横版视频宽度。
+  horizontal_width: 1920
+  # horizontal_height: int，默认 1080。横版视频高度。
+  horizontal_height: 1080
+  # vertical_width: int，默认 1080。竖版视频宽度。
+  vertical_width: 1080
+  # vertical_height: int，默认 1920。竖版视频高度。
+  vertical_height: 1920
+  # crf: int，默认 18。ffmpeg CRF 质量参数。
+  crf: 18
+  # render_horizontal: bool，默认 true。是否渲染横版。
+  render_horizontal: true
+  # render_vertical: bool，默认 true。是否渲染竖版。
+  render_vertical: true
+
+
+# --------------------------------------------------------------------------- #
+# output_dir  — 可选，默认 "output"
+# --------------------------------------------------------------------------- #
+# 项目级默认输出根目录（相对 meta.root），是 output/clips、output/fullcut、output/release 的父目录。
+output_dir: output
