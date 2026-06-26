@@ -7,7 +7,7 @@ description: >-
   "剪视频", "做字幕", "渲染", "切片", "转录", "做个短视频", "帮我处理这段素材",
   "出片", "clip this", "render subtitles", "make a highlight".
 version: 3.1.0
-author: OpenClaw
+author: Claude Code
 license: MIT
 metadata:
   hermes:

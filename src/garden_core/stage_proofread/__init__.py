@@ -42,7 +42,7 @@ class ProofOptions:
     enable_normalize: bool = True      # 繁→简, 著→着
     enable_errata: bool = True         # deterministic apply
     enable_phonetic: bool = True       # detect + (where unambiguous) fix
-    enable_llm: bool = False           # DeepSeek semantic correction
+    enable_llm: bool = True            # DeepSeek semantic correction
     enable_dual_channel: bool = True   # BibbGPT audio+text proofing
     llm_temperature: float = 0.1
 

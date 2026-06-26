@@ -195,7 +195,7 @@ class ProofOptsSpec:
     enable_normalize: bool = True
     enable_errata: bool = True
     enable_phonetic: bool = True
-    enable_llm: bool = False
+    enable_llm: bool = True
     enable_dual_channel: bool = True
     llm_temperature: float = 0.1
 
