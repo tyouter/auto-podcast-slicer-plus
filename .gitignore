@@ -14,3 +14,12 @@ __pycache__/
 .vscode/
 .idea/
 scripts/run_garden.bat
+
+# Dev artifacts (not for publication)
+briefs/
+skills.zip
+ARCHITECTURE*.md
+DEVELOPMENT_PLAN.md
+IMPLEMENTATION_PLAN.md
+PIPELINE_INVOCATION_REVIEW.md
+schema/
